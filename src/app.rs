@@ -25,7 +25,6 @@ use types::{
 
     UserError,
     PencilResult,
-    ViewFunc,
     HTTPErrorHandler,
     UserErrorHandler,
     BeforeRequestFunc,
@@ -71,7 +70,7 @@ pub struct Pencil {
     /// All the attached modules in a hashmap by name.
     pub modules: HashMap<String, Module>,
     /// A dictionary of all view functions registered.  The key will be endpoint.
-    view_functions: HashMap<String, ViewFunc>,
+    view_functions: HashMap<String, Box<Fn(&mut Request) -> PencilResult + Send + Sync>>,
     before_request_funcs: Vec<BeforeRequestFunc>,
     after_request_funcs: Vec<AfterRequestFunc>,
     teardown_request_funcs: Vec<TeardownRequestFunc>,
@@ -163,45 +162,45 @@ impl Pencil {
     ///
     /// A rule that listens for `GET` will implicitly listen for `HEAD`.
     ///
-    pub fn route<M: Into<Matcher>, N: AsRef<[Method]>>(&mut self, rule: M, methods: N, endpoint: &str, view_func: ViewFunc) {
+    pub fn route<M: Into<Matcher>, N: AsRef<[Method]>, F: Fn(&mut Request) -> PencilResult>(&mut self, rule: M, methods: N, endpoint: &str, view_func: F) where F: Send + Sync + 'static {
         self.add_url_rule(rule.into(), methods.as_ref(), endpoint, view_func);
     }
 
     /// This is a shortcut for `route`, register a view function for
     /// a given URL rule with just `GET` method (implicitly `HEAD`).
-    pub fn get<M: Into<Matcher>>(&mut self, rule: M, endpoint: &str, view_func: ViewFunc) {
+    pub fn get<M: Into<Matcher>, F: Fn(&mut Request) -> PencilResult>(&mut self, rule: M, endpoint: &str, view_func: F) where F: Send + Sync + 'static {
         self.route(rule, &[Method::Get], endpoint, view_func);
     }
 
     /// This is a shortcut for `route`, register a view function for
     /// a given URL rule with just `POST` method.
-    pub fn post<M: Into<Matcher>>(&mut self, rule: M, endpoint: &str, view_func: ViewFunc) {
+    pub fn post<M: Into<Matcher>, F: Fn(&mut Request) -> PencilResult>(&mut self, rule: M, endpoint: &str, view_func: F) where F: Send + Sync + 'static {
         self.route(rule, &[Method::Post], endpoint, view_func);
     }
 
     /// This is a shortcut for `route`, register a view function for
     /// a given URL rule with just `DELETE` method.
-    pub fn delete<M: Into<Matcher>>(&mut self, rule: M, endpoint: &str, view_func: ViewFunc) {
+    pub fn delete<M: Into<Matcher>, F: Fn(&mut Request) -> PencilResult>(&mut self, rule: M, endpoint: &str, view_func: F) where F: Send + Sync + 'static {
         self.route(rule, &[Method::Delete], endpoint, view_func);
     }
 
     /// This is a shortcut for `route`, register a view function for
     /// a given URL rule with just `PATCH` method.
-    pub fn patch<M: Into<Matcher>>(&mut self, rule: M, endpoint: &str, view_func: ViewFunc) {
+    pub fn patch<M: Into<Matcher>, F: Fn(&mut Request) -> PencilResult>(&mut self, rule: M, endpoint: &str, view_func: F) where F: Send + Sync + 'static {
         self.route(rule, &[Method::Patch], endpoint, view_func);
     }
 
     /// This is a shortcut for `route`, register a view function for
     /// a given URL rule with just `PUT` method.
-    pub fn put<M: Into<Matcher>>(&mut self, rule: M, endpoint: &str, view_func: ViewFunc) {
+    pub fn put<M: Into<Matcher>, F: Fn(&mut Request) -> PencilResult>(&mut self, rule: M, endpoint: &str, view_func: F) where F: Send + Sync + 'static {
         self.route(rule, &[Method::Put], endpoint, view_func);
     }
 
     /// Connects a URL rule.
-    pub fn add_url_rule(&mut self, matcher: Matcher, methods: &[Method], endpoint: &str, view_func: ViewFunc) {
+    pub fn add_url_rule<F: Fn(&mut Request) -> PencilResult>(&mut self, matcher: Matcher, methods: &[Method], endpoint: &str, view_func: F) where F: Send + Sync + 'static {
         let url_rule = Rule::new(matcher, methods, endpoint);
         self.url_map.add(url_rule);
-        self.view_functions.insert(endpoint.to_string(), view_func);
+        self.view_functions.insert(endpoint.to_string(), Box::new(view_func));
     }
 
     /// Register a module on the application.
@@ -402,15 +401,20 @@ impl Pencil {
 
     /// This method is called to create the default `OPTIONS` response.
     fn make_default_options_response(&self, request: &Request) -> Option<Response> {
-        let url_adapter = self.url_map.bind(request.path(), request.method());
-        if let Some(ref rule) = request.url_rule {
-            // if we provide automatic options for this URL and the request
-            // came with the OPTIONS method, reply automatically
-            if rule.provide_automatic_options && request.method() == Method::Options {
-                let mut response = Response::new_empty();
-                response.headers.set(hyper::header::Allow(url_adapter.allowed_methods()));
-                return Some(response);
-            }
+        match request.path() {
+            Some(path) => {
+                let url_adapter = self.url_map.bind(path, request.method());
+                if let Some(ref rule) = request.url_rule {
+                    // if we provide automatic options for this URL and the request
+                    // came with the OPTIONS method, reply automatically
+                    if rule.provide_automatic_options && request.method() == Method::Options {
+                        let mut response = Response::new_empty();
+                        response.headers.set(hyper::header::Allow(url_adapter.allowed_methods()));
+                        return Some(response);
+                    }
+                }
+            },
+            None => {}
         }
         None
     }

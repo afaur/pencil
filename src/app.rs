@@ -390,7 +390,7 @@ impl Pencil {
             return Ok(default_options_response);
         }
         match self.view_functions.get(&request.endpoint().unwrap()) {
-            Some(&view_func) => {
+            Some(ref view_func) => {
                 view_func(request)
             },
             None => {
@@ -401,20 +401,15 @@ impl Pencil {
 
     /// This method is called to create the default `OPTIONS` response.
     fn make_default_options_response(&self, request: &Request) -> Option<Response> {
-        match request.path() {
-            Some(path) => {
-                let url_adapter = self.url_map.bind(path, request.method());
-                if let Some(ref rule) = request.url_rule {
-                    // if we provide automatic options for this URL and the request
-                    // came with the OPTIONS method, reply automatically
-                    if rule.provide_automatic_options && request.method() == Method::Options {
-                        let mut response = Response::new_empty();
-                        response.headers.set(hyper::header::Allow(url_adapter.allowed_methods()));
-                        return Some(response);
-                    }
-                }
-            },
-            None => {}
+        let url_adapter = self.url_map.bind(request.path(), request.method());
+        if let Some(ref rule) = request.url_rule {
+            // if we provide automatic options for this URL and the request
+            // came with the OPTIONS method, reply automatically
+            if rule.provide_automatic_options && request.method() == Method::Options {
+                let mut response = Response::new_empty();
+                response.headers.set(hyper::header::Allow(url_adapter.allowed_methods()));
+                return Some(response);
+            }
         }
         None
     }

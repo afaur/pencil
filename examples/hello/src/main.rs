@@ -93,7 +93,7 @@ fn main() {
     let name = "Closure";
     app.get("/closure1", "closure1", |_| Ok(Response::from("Hello, World!")));
     app.get("/closure2", "closure2", move |_| Ok(Response::from(format!("Hello, {}!", name))));
-    app.get("/closure3/<string:name>", "closure3", |r| {
+    app.get("/closure3/<name:string>", "closure3", |r| {
         Ok(Response::from(format!("Hello, {}!", r.view_args.get("name").unwrap())))
     });
 
